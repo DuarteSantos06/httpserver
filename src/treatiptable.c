@@ -57,3 +57,22 @@ int isRateLimited(struct in_addr addr){
     return 0;
 }
 
+void *cleanup_ip_table(void* arg){
+    (void )arg;
+    while(1)
+    {
+        pthread_mutex_lock(&ip_table_mutex);
+        ip_entry *current_entry, *tmp;
+        HASH_ITER(hh, ip_map, current_entry, tmp) {
+            double now = time(NULL);
+            if (now - current_entry->last_time > CLEANUP_INTERVAL) {
+                HASH_DEL(ip_map, current_entry);
+                free(current_entry);
+            }
+        }
+        pthread_mutex_unlock(&ip_table_mutex);
+        sleep(CLEANUP_INTERVAL);
+    }
+    return NULL;
+}
+

@@ -8,6 +8,7 @@
 #include "server.h"
 #include "socket.h"
 #include "client.h"
+#include "treatiptable.h"
 
 
 
@@ -18,11 +19,15 @@ int main() {
     int server_fd=server_socket(SERVER_PORT);
 
     printf("Servidor a ouvir na porta 8080...\n");
-
+    pthread_t clean_ip_table_thread;
     if(server_fd<0){
         perror("server_socket");
         return 1;
     }
+
+    pthread_create(&clean_ip_table_thread, NULL, cleanup_ip_table, NULL);
+    pthread_detach(clean_ip_table_thread);
+
     pthread_t workers[WORKER_COUNT];
 
     for(int i=0;i<WORKER_COUNT;i++)
