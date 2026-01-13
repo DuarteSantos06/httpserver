@@ -32,9 +32,9 @@ int server_socket(int port)
         perror("Socket creation failed");
         return -1;
     }
-    int off = 0;
+    int on = 1;
     #ifdef SO_REUSEPORT
-    setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
     #endif
     struct sockaddr_in6 address6;
     memset(&address6, 0, sizeof(address6));
@@ -71,8 +71,6 @@ void accept_clients(int kq, int server_fd)
             break;
         }
         if(isRateLimited(cli_addr.sin_addr)){
-            
-            printf("IP %s is rate limited!\n", inet_ntoa(cli_addr.sin_addr));
             close(client_fd);
             continue;
         }
@@ -103,7 +101,6 @@ void handle_client_event(int kq,struct kevent *kev )
             return;
         }
         c->in_len+=n;
-        printf("Received %d bytes from client %d, buffer: %s\n", n, c->fd, c->buffer_in);
 
         char path[1024];
 
