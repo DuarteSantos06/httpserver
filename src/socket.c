@@ -17,6 +17,7 @@
 #include "response.h"
 #include "http.h"
 #include "treatiptable.h"
+#include "request.h"
 
 
 struct client* create_client(int client_fd);
@@ -35,6 +36,10 @@ int server_socket(int port)
     int on = 1;
     #ifdef SO_REUSEPORT
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+    #endif
+    #ifdef IPV6_V6ONLY
+    int off = 0;
+    setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
     #endif
     struct sockaddr_in6 address6;
     memset(&address6, 0, sizeof(address6));
@@ -59,7 +64,7 @@ void accept_clients(int kq, int server_fd)
 {
     while(1)
     {
-        struct sockaddr_in cli_addr;
+        struct sockaddr_storage cli_addr;
         socklen_t len=sizeof(cli_addr);
         
         int client_fd=accept(server_fd,(struct sockaddr*)&cli_addr,&len);
@@ -70,7 +75,30 @@ void accept_clients(int kq, int server_fd)
             perror("accept");
             break;
         }
-        if(isRateLimited(cli_addr.sin_addr)){
+        char client_ip[INET6_ADDRSTRLEN]; 
+        if (cli_addr.ss_family == AF_INET) {
+            struct sockaddr_in *addr4 = (struct sockaddr_in *)&cli_addr;
+            if (inet_ntop(AF_INET, &addr4->sin_addr, client_ip, sizeof(client_ip)) == NULL) {
+                perror("inet_ntop v4");
+                close(client_fd);
+                continue;
+            }
+        } else if (cli_addr.ss_family == AF_INET6) {
+            struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&cli_addr;
+            if (inet_ntop(AF_INET6, &addr6->sin6_addr, client_ip, sizeof(client_ip)) == NULL) {
+                perror("inet_ntop v6");
+                close(client_fd);
+                continue;
+            }
+        } else {
+            // Família que não queremos tratar
+            close(client_fd);
+            continue;
+        }
+        if (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0) {
+         // skip rate limit
+        }
+        else if(isRateLimited(client_ip)){
             close(client_fd);
             continue;
         }
@@ -78,13 +106,13 @@ void accept_clients(int kq, int server_fd)
         fcntl(client_fd,F_SETFL,O_NONBLOCK);
 
         struct client *c=create_client(client_fd);
+        g_connections_open++;
 
         struct kevent ev_client;
         EV_SET(&ev_client, client_fd, EVFILT_READ, EV_ADD, 0, 0, c);
         kevent(kq, &ev_client, 1, NULL, 0, NULL);
 
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET6, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
+        
         addClientIpToTable(client_ip);
     }
 }
@@ -97,19 +125,42 @@ void handle_client_event(int kq,struct kevent *kev )
         int n=recv(c->fd,c->buffer_in+c->in_len,sizeof(c->buffer_in)-c->in_len,0);
         if(n<=0){
             close(c->fd);
+            g_connections_open--;
             c->state = C_CLOSED;
             return;
         }
         c->in_len+=n;
 
-        char path[1024];
+        if(c->in_len>=MAX_HEADER_SIZE){
+            prepare_response(c,413,"Payload too large\n");
+            c->state=C_WRITING;
 
-        if(parse_request(c->buffer_in,path)!=0){
+            struct kevent ev;
+            EV_SET(&ev,c->fd,EVFILT_WRITE,EV_ADD,0,0,c);
+            kevent(kq,&ev,1,NULL,0,NULL);
+            return;
+        }
+
+        c->buffer_in[c->in_len]='\0';
+
+        char *header_end = strstr(c->buffer_in, "\r\n\r\n");
+        if (header_end == NULL) {
+            return;
+        }
+
+        struct request req;
+
+        if(parse_request(c->buffer_in,&req)!=0){
             prepare_response(c,400,"Bad request\n");
         }else{
-            if(strcmp(path,"/")==0){
+            if(strcmp(req.path,"/")==0){
                 prepare_response(c,200,"Sucess");
-            }else{
+            }
+            else if (strcmp(req.path,"/status")==0)
+            {
+                prepare_status_response(c);
+            }
+            else {
                 prepare_response(c,404,"Not found");
             }
         }
@@ -127,6 +178,7 @@ void handle_client_event(int kq,struct kevent *kev )
         if(c->out_sent>=c->out_len)
         {
             close(c->fd);
+            g_connections_open--;
             c->state=C_CLOSED;
 
             struct kevent ev;

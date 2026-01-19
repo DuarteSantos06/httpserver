@@ -6,36 +6,48 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <pthread.h>
+#include "stdio.h"
 
 
-ip_entry* ip_map = NULL;
-pthread_mutex_t ip_table_mutex = PTHREAD_MUTEX_INITIALIZER;
+ip_entry* ip_map [MAX_SHARDS] = {NULL};
+pthread_mutex_t shard_mutexes[MAX_SHARDS]={PTHREAD_MUTEX_INITIALIZER};
 
+
+static unsigned long hash(const char *str) {
+    unsigned long hash = 5381;
+    int c;
+
+    while ((c = *str++)) {
+        hash = ((hash << 5) + hash) + c; 
+    }
+    return hash % MAX_SHARDS;
+}
 
 void addClientIpToTable(char *ip){
-    pthread_mutex_lock(&ip_table_mutex);
+    int shard=hash(ip);
+    pthread_mutex_lock(&shard_mutexes[shard]);
+    
     ip_entry *entry;
-    HASH_FIND_STR(ip_map, ip, entry);
+    HASH_FIND_STR(ip_map[shard], ip, entry);
     
     if (entry == NULL) {
         entry=malloc(sizeof(ip_entry));
         entry->last_time=time(NULL);
         entry->tokens=MAX_TOKENS;
-        strncpy(entry->ip, ip, INET_ADDRSTRLEN);
-        HASH_ADD_STR(ip_map, ip, entry);
+        strncpy(entry->ip, ip, IP_STR_LEN-1);
+        HASH_ADD_STR(ip_map[shard], ip, entry);
     }else{
         entry->last_time=time(NULL);
     }
-    pthread_mutex_unlock(&ip_table_mutex);
+    pthread_mutex_unlock(&shard_mutexes[shard]);
 }
 
-int isRateLimited(struct in_addr addr){
-    pthread_mutex_lock(&ip_table_mutex);
-    char ip[INET6_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr, ip, sizeof(ip));
-    ip_entry *entry;
-    HASH_FIND_STR(ip_map, ip, entry);
+int isRateLimited(const char *ip){
 
+    int shard = hash(ip);
+    pthread_mutex_lock(&shard_mutexes[shard]);
+    ip_entry *entry;
+    HASH_FIND_STR(ip_map[shard], ip, entry);
     if (entry != NULL) {
         double now = time(NULL);             
         double elapsed = now - entry->last_time;
@@ -44,16 +56,16 @@ int isRateLimited(struct in_addr addr){
             entry->tokens = MAX_TOKENS;
         }
         if(entry->tokens < 1.0) {
-            pthread_mutex_unlock(&ip_table_mutex);
+            pthread_mutex_unlock(&shard_mutexes[shard]);
             return 1; 
         } else {
             entry->tokens -= 1.0; 
             entry->last_time = now; 
-            pthread_mutex_unlock(&ip_table_mutex);
+            pthread_mutex_unlock(&shard_mutexes[shard]);
             return 0; 
         }
     }
-    pthread_mutex_unlock(&ip_table_mutex);
+    pthread_mutex_unlock(&shard_mutexes[shard]);
     return 0;
 }
 
@@ -61,16 +73,18 @@ void *cleanup_ip_table(void* arg){
     (void )arg;
     while(1)
     {
-        pthread_mutex_lock(&ip_table_mutex);
+        printf("Cleaning up IP table...\n");
         ip_entry *current_entry, *tmp;
-        HASH_ITER(hh, ip_map, current_entry, tmp) {
-            double now = time(NULL);
-            if (now - current_entry->last_time > CLEANUP_INTERVAL) {
-                HASH_DEL(ip_map, current_entry);
-                free(current_entry);
+        for(int shard=0;shard<MAX_SHARDS;shard++ ){
+            pthread_mutex_lock(&shard_mutexes[shard]);
+            HASH_ITER(hh, ip_map[shard], current_entry, tmp) {
+                if (time(NULL) - current_entry->last_time > CLEANUP_INTERVAL) {
+                    HASH_DEL(ip_map[shard], current_entry);
+                    free(current_entry);
+                }
             }
+            pthread_mutex_unlock(&shard_mutexes[shard]);
         }
-        pthread_mutex_unlock(&ip_table_mutex);
         sleep(CLEANUP_INTERVAL);
     }
     return NULL;

@@ -20,3 +20,21 @@ void prepare_response(struct client *c, int code, const char *body) {
     c->out_len = len;
     c->out_sent = 0;
 }
+
+void prepare_status_response(struct client *c) {
+    char json[512];
+
+    unsigned long total = atomic_load(&g_requests_total);
+    unsigned long open  = atomic_load(&g_connections_open);
+
+    snprintf(json, sizeof(json),
+        "{"
+            "\"status\": \"ok\","
+            "\"requests_total\": %lu,"
+            "\"connections_open\": %lu"
+        "}",
+        total,
+        open
+    );
+    prepare_response(c, 200, json);
+}

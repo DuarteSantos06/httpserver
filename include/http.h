@@ -1,3 +1,5 @@
 #pragma once
 
-int parse_request(char* buffer,char* path);
+#include "request.h"
+
+int parse_request(char* buffer,struct request *req);
