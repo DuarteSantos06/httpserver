@@ -9,6 +9,7 @@
 #include "stdio.h"
 
 
+
 ip_entry* ip_map [MAX_SHARDS] = {NULL};
 pthread_mutex_t shard_mutexes[MAX_SHARDS]={PTHREAD_MUTEX_INITIALIZER};
 
@@ -71,7 +72,8 @@ int isRateLimited(const char *ip){
 
 void *cleanup_ip_table(void* arg){
     (void )arg;
-    while(1)
+    sleep(CLEANUP_INTERVAL);
+    while(running)
     {
         printf("Cleaning up IP table...\n");
         ip_entry *current_entry, *tmp;

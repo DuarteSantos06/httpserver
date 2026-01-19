@@ -9,11 +9,10 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/event.h>
-#include <sys/time.h>
 
-#include "socket.h"
-#include "client.h"
+
 #include "server.h"
+#include "client.h"
 #include "response.h"
 #include "http.h"
 #include "treatiptable.h"
@@ -21,6 +20,11 @@
 
 
 struct client* create_client(int client_fd);
+
+void handle_http_request(struct client *c);
+int read_from_client(struct client *c);
+int write_to_client(struct client *c);
+void close_client(int kq,struct client *c);
 
 int server_socket(int port)
 {
@@ -62,7 +66,7 @@ int server_socket(int port)
 
 void accept_clients(int kq, int server_fd)
 {
-    while(1)
+    while(running)
     {
         struct sockaddr_storage cli_addr;
         socklen_t len=sizeof(cli_addr);
@@ -122,16 +126,15 @@ void handle_client_event(int kq,struct kevent *kev )
     struct client *c=(struct client *)kev->udata;
 
     if(kev->filter == EVFILT_READ && c->state == C_READING){
-        int n=recv(c->fd,c->buffer_in+c->in_len,sizeof(c->buffer_in)-c->in_len,0);
-        if(n<=0){
+
+        int n=read_from_client(c);
+        if(n==-1){
             close(c->fd);
             g_connections_open--;
             c->state = C_CLOSED;
             return;
         }
-        c->in_len+=n;
-
-        if(c->in_len>=MAX_HEADER_SIZE){
+        if(n==-2){
             prepare_response(c,413,"Payload too large\n");
             c->state=C_WRITING;
 
@@ -140,16 +143,64 @@ void handle_client_event(int kq,struct kevent *kev )
             kevent(kq,&ev,1,NULL,0,NULL);
             return;
         }
-
         c->buffer_in[c->in_len]='\0';
 
         char *header_end = strstr(c->buffer_in, "\r\n\r\n");
         if (header_end == NULL) {
             return;
         }
+        handle_http_request(c);
+        c->state = C_WRITING;
+        struct kevent ev;
+        EV_SET(&ev, c->fd, EVFILT_WRITE, EV_ADD, 0, 0, c);
+        kevent(kq, &ev, 1, NULL, 0, NULL);
+    }else if(kev->filter==EVFILT_WRITE &&c->state==C_WRITING)
+    {
+        if(write_to_client(c))
+        {
+            close_client(kq,c);
+        }
+    }
+}
 
-        struct request req;
+void close_client(int kq,struct client *c)
+{
+    close(c->fd);
+    g_connections_open--;
+    c->state=C_CLOSED;
 
+    struct kevent ev;
+    EV_SET(&ev,c->fd,EVFILT_WRITE,EV_DELETE,0,0,NULL);
+    kevent(kq,&ev,1,NULL,0,NULL);
+    free(c);
+}
+
+int write_to_client(struct client *c){
+    int n = send(c->fd,c->buffer_out+c->out_sent,c->out_len-c->out_sent,0);
+    if (n > 0)
+        c->out_sent += n;
+
+    return c->out_sent >= c->out_len;
+}
+
+int read_from_client(struct client *c)
+{
+    int n = recv(c->fd,c->buffer_in+c->in_len,sizeof(c->buffer_in)-c->in_len,0);
+
+    if (n <= 0) return -1;
+
+    c->in_len += n;
+    c->buffer_in[c->in_len] = '\0';
+
+    if (c->in_len >= MAX_HEADER_SIZE)
+        return -2;
+
+    return strstr(c->buffer_in, "\r\n\r\n") != NULL;
+}
+
+void handle_http_request(struct client *c)
+{
+    struct request req;
         if(parse_request(c->buffer_in,&req)!=0){
             prepare_response(c,400,"Bad request\n");
         }else{
@@ -164,29 +215,6 @@ void handle_client_event(int kq,struct kevent *kev )
                 prepare_response(c,404,"Not found");
             }
         }
-        c->state = C_WRITING;
-        struct kevent ev;
-        EV_SET(&ev, c->fd, EVFILT_WRITE, EV_ADD, 0, 0, c);
-        kevent(kq, &ev, 1, NULL, 0, NULL);
-    }else if(kev->filter==EVFILT_WRITE &&c->state==C_WRITING)
-    {
-        int n=send(c->fd,c->buffer_out+c->out_sent,c->out_len-c->out_sent,0);
-        if(n>0)
-        {
-            c->out_sent+=n;
-        }
-        if(c->out_sent>=c->out_len)
-        {
-            close(c->fd);
-            g_connections_open--;
-            c->state=C_CLOSED;
-
-            struct kevent ev;
-            EV_SET(&ev,c->fd,EVFILT_WRITE,EV_DELETE,0,0,NULL);
-            kevent(kq,&ev,1,NULL,0,NULL);
-            free(c);
-        }
-    }
 }
 
 struct client* create_client(int client_fd)

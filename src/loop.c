@@ -28,10 +28,14 @@ void* worker_loop(void *arg)
     
     struct kevent events[1024];
 
+    struct timespec ts;
+    ts.tv_sec = 1;
+    ts.tv_nsec = 0;
+
     while(running)
     {
         
-        int n=kevent(kq,NULL,0,events,1024,NULL);
+        int n=kevent(kq,NULL,0,events,1024, &ts);
         if(n<0){
             printf("error, n<0");
         }

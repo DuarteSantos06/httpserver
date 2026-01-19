@@ -16,6 +16,11 @@ volatile int running = 1;
 atomic_ulong g_requests_total = 0;
 atomic_ulong g_connections_open = 0;
 
+void signal_handler(int signum) {
+    if (signum == SIGINT || signum == SIGTERM) {
+        running = 0;
+    }
+}
 
 int main() {
     int server_fd=server_socket(SERVER_PORT);
@@ -26,6 +31,9 @@ int main() {
         perror("server_socket");
         return 1;
     }
+
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
     pthread_create(&clean_ip_table_thread, NULL, cleanup_ip_table, NULL);
     pthread_detach(clean_ip_table_thread);

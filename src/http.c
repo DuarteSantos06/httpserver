@@ -8,6 +8,6 @@ int parse_request(char* buffer,struct request *req){
     if(!end)return -1;
     if (sscanf(buffer, "%7s %1023s %15s", req->method, req->path, req->http_version) != 3)
         return -1;
-
+    g_requests_total++;
     return 0;    
 }
