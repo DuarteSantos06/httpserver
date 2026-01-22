@@ -17,11 +17,12 @@
 #include "http.h"
 #include "treatiptable.h"
 #include "request.h"
+#include "handle_http_request.h"
 
 
 struct client* create_client(int client_fd);
 
-void handle_http_request(struct client *c);
+
 int read_from_client(struct client *c);
 int write_to_client(struct client *c);
 void close_client(int kq,struct client *c);
@@ -29,14 +30,13 @@ void close_client(int kq,struct client *c);
 int server_socket(int port)
 {
     int server_fd =socket(AF_INET6, SOCK_STREAM, 0);
-    int flags = fcntl(server_fd, F_GETFL, 0);
-    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
-
 
     if (server_fd < 0) {
         perror("Socket creation failed");
         return -1;
     }
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
     int on = 1;
     #ifdef SO_REUSEPORT
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
@@ -95,12 +95,11 @@ void accept_clients(int kq, int server_fd)
                 continue;
             }
         } else {
-            // Família que não queremos tratar
             close(client_fd);
             continue;
         }
         if (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0) {
-         // skip rate limit
+         //skip rate limiting for localhost
         }
         else if(isRateLimited(client_ip)){
             close(client_fd);
@@ -145,10 +144,24 @@ void handle_client_event(int kq,struct kevent *kev )
         }
         c->buffer_in[c->in_len]='\0';
 
-        char *header_end = strstr(c->buffer_in, "\r\n\r\n");
-        if (header_end == NULL) {
-            return;
+        if (c->header_len == 0) {
+            char *end = strstr(c->buffer_in, "\r\n\r\n");
+            if (!end)
+                return;
+
+            c->header_len = (end - c->buffer_in) + 4;
+
+            struct request tmp;
+            if (parse_request(c->buffer_in, &tmp) != 0) {
+                prepare_response(c, 400, "Bad Request\n");
+                c->state = C_WRITING;
+                return;
+            }
+
+            c->body_expected = tmp.content_length;
         }
+        if (c->in_len < c->header_len + c->body_expected)
+            return;
         handle_http_request(c);
         c->state = C_WRITING;
         struct kevent ev;
@@ -170,6 +183,8 @@ void close_client(int kq,struct client *c)
     c->state=C_CLOSED;
 
     struct kevent ev;
+    EV_SET(&ev, c->fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    kevent(kq, &ev, 1, NULL, 0, NULL);
     EV_SET(&ev,c->fd,EVFILT_WRITE,EV_DELETE,0,0,NULL);
     kevent(kq,&ev,1,NULL,0,NULL);
     free(c);
@@ -187,7 +202,14 @@ int read_from_client(struct client *c)
 {
     int n = recv(c->fd,c->buffer_in+c->in_len,sizeof(c->buffer_in)-c->in_len,0);
 
-    if (n <= 0) return -1;
+    if (n == 0)
+    return -1;
+
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return 0;
+        return -1;
+    }
 
     c->in_len += n;
     c->buffer_in[c->in_len] = '\0';
@@ -198,24 +220,7 @@ int read_from_client(struct client *c)
     return strstr(c->buffer_in, "\r\n\r\n") != NULL;
 }
 
-void handle_http_request(struct client *c)
-{
-    struct request req;
-        if(parse_request(c->buffer_in,&req)!=0){
-            prepare_response(c,400,"Bad request\n");
-        }else{
-            if(strcmp(req.path,"/")==0){
-                prepare_response(c,200,"Sucess");
-            }
-            else if (strcmp(req.path,"/status")==0)
-            {
-                prepare_status_response(c);
-            }
-            else {
-                prepare_response(c,404,"Not found");
-            }
-        }
-}
+
 
 struct client* create_client(int client_fd)
 {

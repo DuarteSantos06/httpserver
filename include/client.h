@@ -12,9 +12,12 @@ struct client{
     enum client_state state;
 
     char buffer_in[BUF_SIZE];
-    int in_len;
+    size_t in_len;
+
+    size_t header_len;
+    size_t body_expected;
 
     char buffer_out[BUF_SIZE];
-    int out_len;
-    int out_sent;
+    size_t out_len;
+    size_t out_sent;
 };
