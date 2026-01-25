@@ -5,7 +5,6 @@
 #include "constants.h"
 
 
-
 int parse_request(char* buffer,struct request *req){
     char* end=strstr(buffer,"\r\n\r\n");
     if(!end)return -1;

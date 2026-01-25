@@ -10,7 +10,7 @@
 #define BUF_SIZE 8192
 #define MAX_REQUESTS 5
 
-extern volatile int running; 
+extern atomic_bool running; 
 extern atomic_ulong g_requests_total;
 extern atomic_ulong g_connections_open;
 

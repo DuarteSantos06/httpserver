@@ -4,9 +4,17 @@
 
 void prepare_response(struct client *c, int code, const char *body) {
     const char *status_line;
-    if (code == 200) status_line = "HTTP/1.1 200 OK";
-    else if (code == 404) status_line = "HTTP/1.1 404 Not Found";
-    else status_line = "HTTP/1.1 400 Bad Request";
+    switch (code) {
+        case 200:
+            status_line = "HTTP/1.1 200 OK";
+            break;
+        case 404:
+            status_line = "HTTP/1.1 404 Not Found";     
+            break;
+        default:
+            status_line = "HTTP/1.1 400 Bad Request";
+            break;
+    }
 
     int len = snprintf(c->buffer_out, sizeof(c->buffer_out),
         "%s\r\n"

@@ -12,7 +12,7 @@
 
 
 
-volatile int running = 1;
+atomic_bool running = 1;
 atomic_ulong g_requests_total = 0;
 atomic_ulong g_connections_open = 0;
 

@@ -55,7 +55,7 @@ int server_socket(int port)
         perror("could not bind");
         return -1;
     }
-    if((listen(server_fd,1024)<0))
+    if((listen(server_fd,SOMAXCONN)<0))
     {
         perror("Listen failled");
         return -1;
@@ -128,9 +128,10 @@ void handle_client_event(int kq,struct kevent *kev )
 
         int n=read_from_client(c);
         if(n==-1){
-            close(c->fd);
+            
             g_connections_open--;
             c->state = C_CLOSED;
+            close_client(kq,c);
             return;
         }
         if(n==-2){
@@ -155,6 +156,9 @@ void handle_client_event(int kq,struct kevent *kev )
             if (parse_request(c->buffer_in, &tmp) != 0) {
                 prepare_response(c, 400, "Bad Request\n");
                 c->state = C_WRITING;
+                struct kevent ev;
+                EV_SET(&ev, c->fd, EVFILT_WRITE, EV_ADD, 0, 0, c);
+                kevent(kq, &ev, 1, NULL, 0, NULL);
                 return;
             }
 

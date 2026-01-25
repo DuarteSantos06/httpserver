@@ -29,7 +29,7 @@ void handle_data_post(struct client *c,const struct request *req)
         prepare_response(c,400,"Bad request: No body\n");
         return;
     }
-    int fd=open("data.txt",O_WRONLY|O_CREAT|O_APPEND,0644);
+    int fd=open("data/data.txt",O_WRONLY|O_CREAT|O_APPEND,0644);
     if(fd==-1){
         prepare_response(c,500,"Internal Server Error: Cannot open file\n");
         return;
