@@ -34,7 +34,6 @@ void* worker_loop(void *arg)
 
     while(running)
     {
-        
         int n=kevent(kq,NULL,0,events,1024, &ts);
         if(n<0){
             printf("error, n<0");

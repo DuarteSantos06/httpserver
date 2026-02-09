@@ -25,6 +25,7 @@ void signal_handler(int signum) {
 int main() {
     int server_fd=server_socket(SERVER_PORT);
 
+
     printf("Servidor a ouvir na porta 8080...\n");
     pthread_t clean_ip_table_thread;
     if(server_fd<0){

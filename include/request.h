@@ -1,6 +1,9 @@
 #pragma once
 
+#include <stdio.h>
+
 #include "constants.h"
+
 
 struct request{
     char method[8];

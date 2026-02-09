@@ -1,34 +1,29 @@
 #!/bin/bash
 
-URL="http://localhost:8080/"
-TOTAL_REQUESTS=100000
-CONCURRENCY=200        # concorrência realista
-REQUESTS_PER_WORKER=500
+CLIENTS=10000
+CONCURRENT=10000
 
-echo "Total requests: $TOTAL_REQUESTS"
-echo "Concurrency: $CONCURRENCY"
-echo "Requests/worker: $REQUESTS_PER_WORKER"
-echo ""
+start=$(date +%s.%N)  # segundos com fração
 
-start=$(date +%s.%N)
+echo "Launching $CLIENTS concurrent clients..."
 
-worker() {
-  for ((i=0; i<REQUESTS_PER_WORKER; i++)); do
-    curl -s --keepalive-time 60 "$URL" > /dev/null
-  done
+send_clients() {
+    local start_index=$1
+    local end_index=$2
+    for ((i=start_index; i<=end_index; i++)); do
+        printf "Hello from client %d\n" "$i" | nc localhost 8080 &
+    done
+    wait
 }
 
-export -f worker
-export URL REQUESTS_PER_WORKER
-
-seq 1 $CONCURRENCY | xargs -n1 -P$CONCURRENCY bash -c 'worker'
+for ((i=1; i<=CLIENTS; i+=CONCURRENT)); do
+    end=$((i+CONCURRENT-1))
+    if (( end > CLIENTS )); then end=$CLIENTS; fi
+    send_clients $i $end
+done
 
 end=$(date +%s.%N)
 elapsed=$(echo "$end - $start" | bc)
 
-rps=$(echo "$TOTAL_REQUESTS / $elapsed" | bc)
-
-echo ""
-echo "Done"
-echo "Time: $elapsed s"
-echo "Approx RPS: $rps"
+echo "All clients finished"
+echo "Total time: $elapsed seconds"

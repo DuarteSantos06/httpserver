@@ -29,6 +29,11 @@ void prepare_response(struct client *c, int code, const char *body) {
     c->out_sent = 0;
 }
 
+void prepare_429_response(struct client *c) {
+    const char *body = "Too Many Requests\n";
+    prepare_response(c, 429, body);
+}
+
 void prepare_status_response(struct client *c) {
     char json[512];
 
