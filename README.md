@@ -56,6 +56,7 @@ cd test
 ```
 That shell script will give soomething like this output: 
 
+```
 duartesantos@MacBook-Air-de-Duarte test % ./benchmark.sh
 Benchmark /
 Running 30s test @ http://localhost:8080/
@@ -77,6 +78,6 @@ Running 20s test @ http://localhost:8080/status
   265095 requests in 20.05s, 41.86MB read
 Requests/sec:  13223.21
 Transfer/sec:      2.09MB
-
+```
 
 
