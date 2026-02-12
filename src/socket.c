@@ -26,6 +26,7 @@ struct client* create_client(int client_fd);
 int read_from_client(struct client *c);
 int write_to_client(struct client *c);
 void close_client(int kq,struct client *c);
+void set_to_write(struct client *c,int kq);
 
 int server_socket(int port)
 {
@@ -51,8 +52,6 @@ int server_socket(int port)
     if (setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off)) < 0)
         perror("setsockopt IPV6_V6ONLY");
     #endif
-
-
 
     struct sockaddr_in6 address6;
     memset(&address6, 0, sizeof(address6));
@@ -123,7 +122,7 @@ void accept_clients(int kq, int server_fd)
         }
         else if(isRateLimited(client_ip)){
             prepare_429_response(c);
-            set_to_write(c);  
+            set_to_write(c,kq);  
             continue;
         }
         struct kevent ev_client;
@@ -134,7 +133,7 @@ void accept_clients(int kq, int server_fd)
     }
 }
 
-void handle_header_parsing(struct client *c)
+void handle_header_parsing(struct client *c,int kq)
 {
     char *end = strstr(c->buffer_in, "\r\n\r\n");
     if (!end)
@@ -145,14 +144,14 @@ void handle_header_parsing(struct client *c)
         struct request tmp;
     if (parse_request(c->buffer_in, &tmp) != 0) {
         prepare_response(c, 400, "Bad Request\n");
-        set_to_write(c);
+        set_to_write(c,kq);
         return;
     }
 
     c->body_expected = tmp.content_length;
 }
 
-void set_to_write(struct client *c)
+void set_to_write(struct client *c,int kq)
 {
     c->state = C_WRITING;
     struct kevent ev;
@@ -165,7 +164,6 @@ void handle_client_event(int kq,struct kevent *kev )
     struct client *c=(struct client *)kev->udata;
 
     if(kev->filter == EVFILT_READ && c->state == C_READING){
-
         int n=read_from_client(c);
         if(n==-1){
             g_connections_open--;
@@ -175,16 +173,16 @@ void handle_client_event(int kq,struct kevent *kev )
         }
         if(n==-2){
             prepare_response(c,413,"Payload too large\n");
-            set_to_write(c);
+            set_to_write(c,kq);
             return;
         }
         if (c->header_len == 0) {
-            handle_header_parsing(c);
+            handle_header_parsing(c,kq);
         }
         if (c->in_len < c->header_len + c->body_expected)
             return;
         handle_http_request(c);
-        set_to_write(c);
+        set_to_write(c,kq);
     }else if(kev->filter==EVFILT_WRITE &&c->state==C_WRITING)
     {
         if(write_to_client(c))

@@ -25,7 +25,6 @@ void* worker_loop(void *arg)
     EV_SET(&ev,server_fd,EVFILT_READ, EV_ADD, 0, 0, NULL);
     kevent(kq,&ev,1,NULL,0,NULL);
 
-    
     struct kevent events[1024];
 
     struct timespec ts;
@@ -36,7 +35,8 @@ void* worker_loop(void *arg)
     {
         int n=kevent(kq,NULL,0,events,1024, &ts);
         if(n<0){
-            printf("error, n<0");
+            perror("kevent");
+            break;
         }
 
         for(int i=0;i<n;i++)
