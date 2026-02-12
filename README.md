@@ -12,18 +12,19 @@ This project was developed as a learning exercise and to demonstrate my knowledg
 - Respond with `404 Not Found` if no route matches
 - Modular design: easy to add new routes and handlers
 
-## Projects structure
-
+## Project structure
+```
 httpserver/
 │
-├── main.c                  # Entry point for the server
-├── response.c              # Preparing HTTP responses
-├── handle_http_request.c   # Router that dispatches requests to handlers
-├── handlers_utils.c        # Utility functions for handlers
+├── main.c                  # Entry point for the server  
+├── response.c              # Preparing HTTP responses  
+├── handle_http_request.c   # Router that dispatches requests to handlers  
+├── handlers_utils.c        # Utility functions for handlers  
 ├── loop.c                  # Main server loop using kevent and threads
 ├── http.c                  # Parses the request 
 ├── handleIpTable.c         # IP table management / client access control
 └── socket.c                # Socket setup, accept clients, read/write
+```
 
 ## Routes
 
