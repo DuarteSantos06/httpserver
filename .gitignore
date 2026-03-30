@@ -1,6 +1,7 @@
 *.o
 httpserver
 .vscode
+
 data
 readme
 .DS_Store
