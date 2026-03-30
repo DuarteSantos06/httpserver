@@ -13,20 +13,19 @@ int parse_request(char* buffer,struct request *req){
 
     req->content_length=0;
     req->body[0]='\0';
+    size_t headers_len = end - buffer;
     char *cl=strstr(buffer,"Content-Length:");
-    if(cl){
-        sscanf(cl,"Content-Length: %d",&req->content_length);
-        if(req->content_length>MAX_BODY){
+    if(cl && (size_t)(cl - buffer) < headers_len){
+        if (sscanf(cl, "Content-Length: %d", &req->content_length) != 1)
             return -1;
-        }
+
+        if (req->content_length < 0 || req->content_length >= MAX_BODY)
+            return -1;
         char *body_start=end+4;
-        if((size_t)req->content_length <= strlen(body_start)){
-            strncpy(req->body,body_start,req->content_length);
-            req->body[req->content_length]='\0';
-        }else{
-            return -1;
-        }
-    }    
+        memcpy(req->body, body_start, req->content_length);
+        req->body[req->content_length] = '\0';
+    }
     g_requests_total++;
-    return 0;    
+    return 0;   
+    
 }
