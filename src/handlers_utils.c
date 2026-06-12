@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include "audit.h"
 
 void handle_root_get(struct client *c,const struct request *req)
 {
@@ -47,3 +48,28 @@ void handle_data_post(struct client *c,const struct request *req)
     close(fd);
     prepare_response(c,200,"Data received and stored\n");
 }
+
+void handle_static_file(struct client *c,const struct request *req)
+{
+    if (strstr(req->path, "..") != NULL) {
+        log_audit(c, "PATH TRAVERSAL ATTEMPT", req->path);
+        prepare_response(c, 400, "Bad Request: Invalid Path\n");
+        return; 
+    }
+
+    char file_path[2024]; 
+    
+    if (strcmp(req->path, "/") == 0) {
+        snprintf(file_path, sizeof(file_path), "www/index.html");
+    } 
+    else {
+        snprintf(file_path, sizeof(file_path), "www%s", req->path);
+    }
+
+    if (prepare_file_response(c, file_path) != 0) {
+        handle_error_not_found(c);
+    }
+
+}
+
+

@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <arpa/inet.h>
 
 
 #define BUF_SIZE 8192
@@ -12,6 +13,7 @@ enum client_state {
 
 struct client{
     int fd;
+    char ip[INET6_ADDRSTRLEN];
     enum client_state state;
 
     char buffer_in[BUF_SIZE];

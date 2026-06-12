@@ -20,7 +20,7 @@
 #include "handle_http_request.h"
 
 
-struct client* create_client(int client_fd);
+struct client* create_client(int client_fd,const char *client_ip);
 
 
 int read_from_client(struct client *c);
@@ -116,7 +116,7 @@ void accept_clients(int epfd, int server_fd)
         if(get_Ip(&cli_addr,client_fd,client_ip,ip_len)==-1){
             continue;
         }
-        struct client *c=create_client(client_fd);
+        struct client *c=create_client(client_fd,client_ip);
         if (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0) {
          //skip rate limiting for localhost
         }
@@ -175,6 +175,10 @@ void handle_client_event(int epfd,struct epoll_event *event )
     // Checks if the client is ready to read and is in the reading state
     if((event->events & EPOLLIN) && c->state == C_READING){
         int n=read_from_client(c);
+        if (n == 0) {
+            return; 
+        }
+        
         if(n==-1){
             g_connections_open--;
             c->state = C_CLOSED;
@@ -250,7 +254,7 @@ int read_from_client(struct client *c)
     return strstr(c->buffer_in, "\r\n\r\n") != NULL;
 }
 
-struct client* create_client(int client_fd)
+struct client* create_client(int client_fd,const char *client_ip)
 {
     struct client*c=malloc(sizeof(struct client));
     if (!c) {
@@ -260,6 +264,10 @@ struct client* create_client(int client_fd)
     memset(c,0,sizeof(struct client));
     c->fd=client_fd;
     c->state=C_READING;
+
+    strncpy(c->ip, client_ip, sizeof(c->ip) - 1);
+    c->ip[sizeof(c->ip) - 1] = '\0';
+
     g_connections_open++;
 
     return c;
