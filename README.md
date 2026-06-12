@@ -61,7 +61,7 @@ The benchmarking script requires `wrk` installed on the system.
 ```bash
 sudo apt update && sudo apt install wrk -y
 ```
-** Run the benchmarks:**
+**Run the benchmarks:**
 ```bash
 cd test
 ./benchmark.sh
