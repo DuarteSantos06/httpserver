@@ -7,7 +7,6 @@
 #define MAX_HEADER_SIZE 4096
 
 #define MAX_CLIENTS 65536
-#define BUF_SIZE 8192
 #define MAX_REQUESTS 5
 
 extern atomic_bool running; 

@@ -28,6 +28,7 @@ void handle_http_request(struct client *c)
     struct request req;
 
     if (parse_request(c->buffer_in, &req) != 0) {
+        printf("Failed to parse request: %s\n", c->buffer_in);
         prepare_response(c, 400, "Bad Request\n");
         return;
     }

@@ -2,7 +2,7 @@
 #include <string.h>
 #include "client.h"
 #include "request.h"
-#include "constants.h"
+#include "server.h"
 
 
 int parse_request(char* buffer,struct request *req){

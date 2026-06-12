@@ -1,8 +1,8 @@
 #!/bin/bash
 
 URL="http://localhost:8080/"
-TOTAL_REQUESTS=10000000   # total de requests que queres fazer
-CONCURRENCY=10000       # número de workers em paralelo
+TOTAL_REQUESTS=10000000   #total requests we want to send
+CONCURRENCY=1000       # number of concurrent workers (threads) to send requests
 REQUESTS_PER_WORKER=$((TOTAL_REQUESTS / CONCURRENCY))
 
 echo "Total requests: $TOTAL_REQUESTS"

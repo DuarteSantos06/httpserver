@@ -3,7 +3,7 @@
 CLIENTS=10000
 CONCURRENT=10000
 
-start=$(date +%s.%N)  # segundos com fração
+start=$(date +%s.%N) 
 
 echo "Launching $CLIENTS concurrent clients..."
 
@@ -11,7 +11,8 @@ send_clients() {
     local start_index=$1
     local end_index=$2
     for ((i=start_index; i<=end_index; i++)); do
-        printf "Hello from client %d\n" "$i" | nc localhost 8080 &
+        # 🚀 A CORREÇÃO: Enviamos a linha do método + a quebra de linha dupla exigida pelo protocolo HTTP
+        printf "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" | nc localhost 8080 &
     done
     wait
 }

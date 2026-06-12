@@ -1,5 +1,8 @@
 #pragma once
-#include "server.h"
+#include <stddef.h>
+
+
+#define BUF_SIZE 8192
 
 enum client_state {
     C_READING,

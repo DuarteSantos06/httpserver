@@ -8,7 +8,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <sys/event.h>
+#include <sys/epoll.h>
 
 
 #include "server.h"
@@ -25,8 +25,8 @@ struct client* create_client(int client_fd);
 
 int read_from_client(struct client *c);
 int write_to_client(struct client *c);
-void close_client(int kq,struct client *c);
-void set_to_write(struct client *c,int kq);
+void close_client(int epfd,struct client *c);
+void set_to_write(struct client *c,int epfd);
 
 int server_socket(int port)
 {
@@ -95,7 +95,7 @@ int get_Ip(struct sockaddr_storage *cli_addr, int client_fd,char* client_ip ,siz
 }
 
 
-void accept_clients(int kq, int server_fd)
+void accept_clients(int epfd, int server_fd)
 {
     while(running)
     {
@@ -122,87 +122,99 @@ void accept_clients(int kq, int server_fd)
         }
         else if(isRateLimited(client_ip)){
             prepare_429_response(c);
-            set_to_write(c,kq);  
+            set_to_write(c,epfd);  
             continue;
         }
-        struct kevent ev_client;
-        EV_SET(&ev_client, client_fd, EVFILT_READ, EV_ADD, 0, 0, c);
-        kevent(kq, &ev_client, 1, NULL, 0, NULL);
-
+        struct epoll_event ev_client;
+        ev_client.events = EPOLLIN;          
+        ev_client.data.fd = client_fd;
+        ev_client.data.ptr = c;
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev_client) == -1) {
+            perror("Erro no epoll_ctl");
+            close(client_fd);
+            free(c);
+        }
         addClientIpToTable(client_ip);
     }
 }
 
-void handle_header_parsing(struct client *c,int kq)
+void handle_header_parsing(struct client *c,int epfd)
 {
     char *end = strstr(c->buffer_in, "\r\n\r\n");
-    if (!end)
+    if(!end)
         return;
 
-        c->header_len = (end - c->buffer_in) + 4;
+    c->header_len = (end - c->buffer_in) + 4;
 
-        struct request tmp;
+    struct request tmp;
     if (parse_request(c->buffer_in, &tmp) != 0) {
         prepare_response(c, 400, "Bad Request\n");
-        set_to_write(c,kq);
+        set_to_write(c , epfd);
         return;
     }
 
     c->body_expected = tmp.content_length;
 }
 
-void set_to_write(struct client *c,int kq)
+void set_to_write(struct client *c,int epfd)
 {
     c->state = C_WRITING;
-    struct kevent ev;
-    EV_SET(&ev, c->fd, EVFILT_WRITE, EV_ADD, 0, 0, c);
-    kevent(kq, &ev, 1, NULL, 0, NULL);
+    struct epoll_event ev;
+    ev.events = EPOLLOUT ;
+    ev.data.ptr = c ;
+    if (epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, &ev) == -1) {
+        perror("epoll_ctl set_to_write");   
+    }
 }
 
-void handle_client_event(int kq,struct kevent *kev )
+void handle_client_event(int epfd,struct epoll_event *event )
 {
-    struct client *c=(struct client *)kev->udata;
+    struct client *c=(struct client *)event->data.ptr;
+    if (!c) return;
 
-    if(kev->filter == EVFILT_READ && c->state == C_READING){
+    // Checks if the client is ready to read and is in the reading state
+    if((event->events & EPOLLIN) && c->state == C_READING){
         int n=read_from_client(c);
         if(n==-1){
             g_connections_open--;
             c->state = C_CLOSED;
-            close_client(kq,c);
+            close_client(epfd,c);
             return;
         }
         if(n==-2){
             prepare_response(c,413,"Payload too large\n");
-            set_to_write(c,kq);
+            set_to_write(c,epfd);
             return;
         }
         if (c->header_len == 0) {
-            handle_header_parsing(c,kq);
+            handle_header_parsing(c,epfd);
         }
         if (c->in_len < c->header_len + c->body_expected)
             return;
         handle_http_request(c);
-        set_to_write(c,kq);
-    }else if(kev->filter==EVFILT_WRITE &&c->state==C_WRITING)
+        set_to_write(c,epfd);
+    // Checks if the client is ready to write and is in the writing state
+    }else if((event->events & EPOLLOUT) &&c->state==C_WRITING) 
     {
         if(write_to_client(c))
         {
-            close_client(kq,c);
+            close_client(epfd,c);
         }
     }
 }
 
-void close_client(int kq,struct client *c)
+void close_client(int epfd,struct client *c)
 {
+    
+    // We send a dummy event to remove the client from the epoll instance
+    struct epoll_event ev;
+    ev.data.ptr = NULL;
+    if (epoll_ctl(epfd, EPOLL_CTL_DEL, c->fd, &ev) == -1) {
+        perror("epoll_ctl close_client");
+    }
     close(c->fd);
     g_connections_open--;
     c->state=C_CLOSED;
-
-    struct kevent ev;
-    EV_SET(&ev, c->fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    kevent(kq, &ev, 1, NULL, 0, NULL);
-    EV_SET(&ev,c->fd,EVFILT_WRITE,EV_DELETE,0,0,NULL);
-    kevent(kq,&ev,1,NULL,0,NULL);
     free(c);
 }
 

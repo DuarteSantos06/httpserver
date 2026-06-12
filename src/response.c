@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "client.h"
+#include "server.h"
 
 void prepare_response(struct client *c, int code, const char *body) {
     const char *status_line;
