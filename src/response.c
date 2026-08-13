@@ -79,11 +79,10 @@ int prepare_file_response(struct client *c, const char *file_path) {
         "Connection: close\r\n\r\n",
         file_size, get_content_type(file_path));
 
-    size_t bytes_read = fread(c->buffer_out + header_len, 1, sizeof(c->buffer_out) - header_len, file);
-    fclose(file);
-
-    c->out_len = header_len + bytes_read;
+    c->out_len = header_len;
     c->out_sent = 0;
+    c->resp_file = file;
+    c->file_remaining = (size_t)file_size;
 
     return 0; // Sucesso
 }

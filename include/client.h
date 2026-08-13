@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <stdio.h>
 #include <arpa/inet.h>
 
 
@@ -25,4 +26,7 @@ struct client{
     char buffer_out[BUF_SIZE];
     size_t out_len;
     size_t out_sent;
+
+    FILE *resp_file;
+    size_t file_remaining;
 };
