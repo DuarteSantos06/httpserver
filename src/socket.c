@@ -217,19 +217,47 @@ void close_client(int epfd,struct client *c)
         perror("epoll_ctl close_client");
     }
     close(c->fd);
+    if (c->resp_file) {
+        fclose(c->resp_file);
+        c->resp_file = NULL;
+    }
     g_connections_open--;
     c->state=C_CLOSED;
     free(c);
 }
 
 int write_to_client(struct client *c){
-    int n = send(c->fd,c->buffer_out+c->out_sent,c->out_len-c->out_sent,0);
-    if (n > 0)
-        c->out_sent += n;
-    else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
-        return 1;    
+    for (;;) {
+        while (c->out_sent < c->out_len) {
+            int n = send(c->fd, c->buffer_out + c->out_sent, c->out_len - c->out_sent, 0);
+            if (n > 0) {
+                c->out_sent += n;
+                continue;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+                return 0; // socket buffer full, wait for next EPOLLOUT
+            if (n < 0)
+                return 1; // real error, close connection
+            return 0; // n == 0, nothing sent, try again later
+        }
 
-    return c->out_sent >= c->out_len;
+        if (c->file_remaining == 0)
+            return 1; // fully sent, close connection
+        size_t size_to_read;
+
+        if(c->file_remaining < sizeof(c->buffer_out))
+            size_to_read = c->file_remaining; // read the remaining bytes if less than buffer size
+        else
+            size_to_read = sizeof(c->buffer_out); // read a full buffer
+
+        size_t bytes_read = fread(c->buffer_out, 1, size_to_read, c->resp_file);
+        if (bytes_read == 0)
+            return 1; // read error/short file, close connection
+
+        c->file_remaining -= bytes_read;     // the remaining minus what we read
+        c->out_len = bytes_read;
+        c->out_sent = 0;
+    }
 }
 
 int read_from_client(struct client *c)
