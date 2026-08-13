@@ -114,6 +114,7 @@ void accept_clients(int epfd, int server_fd)
         char client_ip[INET6_ADDRSTRLEN]; 
         size_t ip_len = sizeof(client_ip);
         if(get_Ip(&cli_addr,client_fd,client_ip,ip_len)==-1){
+            close(client_fd);
             continue;
         }
         struct client *c=create_client(client_fd,client_ip);
@@ -127,8 +128,8 @@ void accept_clients(int epfd, int server_fd)
         }
         struct epoll_event ev_client;
         ev_client.events = EPOLLIN;          
-        ev_client.data.fd = client_fd;
         ev_client.data.ptr = c;
+
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev_client) == -1) {
             perror("Erro no epoll_ctl");
             close(client_fd);
@@ -180,7 +181,6 @@ void handle_client_event(int epfd,struct epoll_event *event )
         }
         
         if(n==-1){
-            g_connections_open--;
             c->state = C_CLOSED;
             close_client(epfd,c);
             return;
