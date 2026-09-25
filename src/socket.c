@@ -229,7 +229,7 @@ void close_client(int epfd,struct client *c)
 int write_to_client(struct client *c){
     for (;;) {
         while (c->out_sent < c->out_len) {
-            int n = send(c->fd, c->buffer_out + c->out_sent, c->out_len - c->out_sent, 0);
+            int n = send(c->fd, c->buffer_out + c->out_sent, c->out_len - c->out_sent, MSG_NOSIGNAL);
             if (n > 0) {
                 c->out_sent += n;
                 continue;
