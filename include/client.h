@@ -29,4 +29,6 @@ struct client{
 
     FILE *resp_file;
     size_t file_remaining;
+    
+    size_t file_offset;
 };

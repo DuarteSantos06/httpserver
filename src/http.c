@@ -14,9 +14,9 @@ int parse_request(char* buffer,struct request *req){
     req->content_length=0;
     req->body[0]='\0';
     size_t headers_len = end - buffer;
-    char *cl=strstr(buffer,"Content-Length:");
-    if(cl && (size_t)(cl - buffer) < headers_len){
-        if (sscanf(cl, "Content-Length: %d", &req->content_length) != 1)
+    char *content_length=strstr(buffer,"Content-Length:");
+    if(content_length && (size_t)(content_length - buffer) < headers_len){
+        if (sscanf(content_length, "Content-Length: %d", &req->content_length) != 1)
             return -1;
 
         if (req->content_length < 0 || req->content_length >= MAX_BODY)
