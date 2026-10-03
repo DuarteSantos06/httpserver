@@ -10,4 +10,5 @@ struct request{
     char http_version[16];
     int content_length;
     char body[MAX_BODY];
+    int keep_alive;
 };

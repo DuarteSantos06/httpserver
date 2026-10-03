@@ -14,6 +14,7 @@
 #include "http.h"
 #include "response.h"
 #include "server.h"
+#include "list.h"
 
 
 void* worker_loop(void *arg)
@@ -59,6 +60,7 @@ void* worker_loop(void *arg)
                 handle_client_event(epfd, &events[i]);
             }
         }
+        clean(epfd);
     }
     close(epfd);
     return NULL;

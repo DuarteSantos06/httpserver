@@ -16,3 +16,5 @@ void handle_client_event(int epfd, struct epoll_event *event);
 
 // Cria uma struct client inicializada para um fd
 struct client* create_client(int client_fd,const char *client_ip);
+
+void close_client(int epfd,struct client *c);    
