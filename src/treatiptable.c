@@ -24,7 +24,7 @@ static unsigned long hash(const char *str) {
     return hash % MAX_SHARDS;
 }
 
-void addClientIpToTable(char *ip){
+void add_client_ip_to_table(char *ip){
     int shard=hash(ip);
     pthread_mutex_lock(&shard_mutexes[shard]);
     
@@ -43,7 +43,7 @@ void addClientIpToTable(char *ip){
     pthread_mutex_unlock(&shard_mutexes[shard]);
 }
 
-int isRateLimited(const char *ip){
+int is_rate_limited(const char *ip){
 
     int shard = hash(ip);
     pthread_mutex_lock(&shard_mutexes[shard]);

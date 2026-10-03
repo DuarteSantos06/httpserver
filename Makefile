@@ -1,8 +1,8 @@
 # -------------------------
-# Configurações
+# Configuration
 # -------------------------
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -pthread -g -Iinclude -I/opt/homebrew/include
+CFLAGS = -Wall -Wextra -Werror -pthread -g -Iinclude
 TARGET = httpserver
 BUILD_DIR = build
 
@@ -13,7 +13,7 @@ INCLUDE_DIR = include
 DEPS =  $(INCLUDE_DIR)/client.h $(INCLUDE_DIR)/loop.h $(INCLUDE_DIR)/socket.h $(INCLUDE_DIR)/http.h $(INCLUDE_DIR)/response.h $(INCLUDE_DIR)/server.h $(INCLUDE_DIR)/treatiptable.h $(INCLUDE_DIR)/request.h $(INCLUDE_DIR)/handle_http_request.h $(INCLUDE_DIR)/handlers_utils.h $(INCLUDE_DIR)/audit.h $(INCLUDE_DIR)/list.h
 
 # -------------------------
-# Regras
+# Rules
 # -------------------------
 
 all: $(TARGET)

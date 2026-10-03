@@ -67,13 +67,13 @@ int server_socket(int port)
     }
     if((listen(server_fd,SOMAXCONN)<0))
     {
-        perror("Listen failled");
+        perror("Listen failed");
         return -1;
     }
     return server_fd;
 }
 
-int get_Ip(struct sockaddr_storage *cli_addr, int client_fd,char* client_ip ,size_t ip_len){
+int get_ip(struct sockaddr_storage *cli_addr, int client_fd,char* client_ip ,size_t ip_len){
     if (cli_addr->ss_family == AF_INET) {
             struct sockaddr_in *addr4 = (struct sockaddr_in *)cli_addr;
             if (inet_ntop(AF_INET, &addr4->sin_addr, client_ip, ip_len) == NULL) {
@@ -118,7 +118,7 @@ void accept_clients(int epfd, int server_fd)
         fcntl(client_fd,F_SETFL,O_NONBLOCK);
         char client_ip[INET6_ADDRSTRLEN]; 
         size_t ip_len = sizeof(client_ip);
-        if(get_Ip(&cli_addr,client_fd,client_ip,ip_len)==-1){
+        if(get_ip(&cli_addr,client_fd,client_ip,ip_len)==-1){
             close(client_fd);
             continue;
         }
@@ -126,7 +126,7 @@ void accept_clients(int epfd, int server_fd)
         int limited = 0;
         if (strcmp(client_ip, "127.0.0.1") != 0 && strcmp(client_ip, "::1") != 0)
         {
-            limited = isRateLimited(client_ip);
+            limited = is_rate_limited(client_ip);
         }
         struct epoll_event ev_client;         
         ev_client.data.ptr = c;
@@ -142,7 +142,7 @@ void accept_clients(int epfd, int server_fd)
         }
 
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev_client) == -1) {
-            perror("Erro no epoll_ctl");
+            perror("epoll_ctl accept");
             remove_client(c);
             g_connections_open--;
             close(client_fd);
@@ -151,7 +151,7 @@ void accept_clients(int epfd, int server_fd)
         }
 
         if (!limited)
-            addClientIpToTable(client_ip);
+            add_client_ip_to_table(client_ip);
     }
 }
 

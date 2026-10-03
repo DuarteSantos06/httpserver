@@ -7,11 +7,11 @@
 _Thread_local extern struct client *clients_head;
 _Thread_local extern struct client *clients_tail;
 
-// Adiciona o cliente ao fim da lista (o mais recente)
+// Appends the client to the tail of the list (most recently active)
 void add_client(struct client *c);
 
-// Remove o cliente da lista (não fecha nem liberta)
+// Unlinks the client from the list (does not close or free it)
 void remove_client(struct client *c);
 
-// Fecha os clientes inativos há mais de TIME_OUT segundos
+// Closes clients that have been idle for more than TIME_OUT seconds
 void clean(int epfd);

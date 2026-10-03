@@ -1,7 +1,8 @@
 #pragma once
 
 #include <stdio.h>
-#include "handle_http_request.h"
+
+#define MAX_BODY 8192
 
 
 struct request{

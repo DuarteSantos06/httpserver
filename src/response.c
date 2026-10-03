@@ -4,7 +4,7 @@
 #include "server.h"
 #include <sys/stat.h>
 #include <fcntl.h>
- #include <unistd.h>
+#include <unistd.h>
 
 void prepare_response(struct client *c, int code, const char *body) {
     const char *status_line;
@@ -102,5 +102,5 @@ int prepare_file_response(struct client *c, const char *file_path) {
     c->resp_file = fd;
     c->file_remaining = (size_t)st.st_size;
 
-    return 0; // Sucesso
+    return 0; // Success
 }

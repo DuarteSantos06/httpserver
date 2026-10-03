@@ -23,5 +23,5 @@ extern pthread_mutex_t shard_mutexes[MAX_SHARDS];
 
 
 void *cleanup_ip_table(void* arg);
-void addClientIpToTable(char *ip);
-int isRateLimited(const char *ip);
+void add_client_ip_to_table(char *ip);
+int is_rate_limited(const char *ip);
