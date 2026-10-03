@@ -8,8 +8,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/epoll.h>
-
+#include <sys/sendfile.h>
 
 #include "server.h"
 #include "client.h"
@@ -18,6 +19,7 @@
 #include "treatiptable.h"
 #include "request.h"
 #include "handle_http_request.h"
+#include "list.h"
 
 
 struct client* create_client(int client_fd,const char *client_ip);
@@ -110,6 +112,9 @@ void accept_clients(int epfd, int server_fd)
             perror("accept");
             break;
         }
+        int nodelay = 1;
+        if (setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0)
+            perror("setsockopt TCP_NODELAY");
         fcntl(client_fd,F_SETFL,O_NONBLOCK);
         char client_ip[INET6_ADDRSTRLEN]; 
         size_t ip_len = sizeof(client_ip);
@@ -118,23 +123,35 @@ void accept_clients(int epfd, int server_fd)
             continue;
         }
         struct client *c=create_client(client_fd,client_ip);
-        if (strcmp(client_ip, "127.0.0.1") == 0 || strcmp(client_ip, "::1") == 0) {
-         //skip rate limiting for localhost
+        int limited = 0;
+        if (strcmp(client_ip, "127.0.0.1") != 0 && strcmp(client_ip, "::1") != 0)
+        {
+            limited = isRateLimited(client_ip);
         }
-        else if(isRateLimited(client_ip)){
-            prepare_429_response(c);
-            set_to_write(c,epfd);  
-            continue;
+        struct epoll_event ev_client;         
+        ev_client.data.ptr = c;
+        if(limited)
+        {
+            prepare_response(c, 429, "Too Many Requests\n");
+            c->state = C_WRITING;
+            ev_client.events = EPOLLOUT;
         }
-        struct epoll_event ev_client;
-        ev_client.events = EPOLLIN;          
+        else
+        {
+            ev_client.events = EPOLLIN ; 
+        }
 
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, client_fd, &ev_client) == -1) {
             perror("Erro no epoll_ctl");
+            remove_client(c);
+            g_connections_open--;
             close(client_fd);
             free(c);
+            continue;
         }
-        addClientIpToTable(client_ip);
+
+        if (!limited)
+            addClientIpToTable(client_ip);
     }
 }
 
@@ -171,9 +188,14 @@ void handle_client_event(int epfd,struct epoll_event *event )
 {
     struct client *c=(struct client *)event->data.ptr;
     if (!c) return;
+    c->last_activity = time(NULL);
+    remove_client(c);
+    add_client(c);
+    
 
     // Checks if the client is ready to read and is in the reading state
     if((event->events & EPOLLIN) && c->state == C_READING){
+
         int n=read_from_client(c);
         if (n == 0) {
             return; 
@@ -203,13 +225,47 @@ void handle_client_event(int epfd,struct epoll_event *event )
         if(val == -1)
         {
             close_client(epfd,c);
+            return;
         }
-        else if( val == 0)
+        else if(val == 1)
         {
-            //kepp_alive
+            if(c->keep_alive==0)
+            {
+                close_client(epfd,c);
+            }
+            else if ( c-> keep_alive == 1)
+            {
+                c->state = C_READING;
+                c->in_len = 0;
+                c->header_len = 0;
+                c->body_expected = 0;
+                c->out_len = 0;
+                c->out_sent = 0;
+                c->file_remaining = 0;
+                c->file_offset = 0;
+                if (c->resp_file != -1) {
+                    close(c->resp_file);
+                    c->resp_file = -1;
+                }
+                c->keep_alive = 0; // Reset keep_alive for the next request
+                struct epoll_event ev;
+                ev.events = EPOLLIN ;
+                ev.data.ptr = c ;
+                if (epoll_ctl(epfd, EPOLL_CTL_MOD, c->fd, &ev) == -1) {
+                    perror("epoll_ctl set_to_read");   
+                    close_client(epfd,c);
+                    return;
+                }
+            }
         }
+        else if(val == 0)
+        {
+            return; 
+        }
+        
     }
 }
+
 
 void close_client(int epfd,struct client *c)
 {
@@ -221,12 +277,13 @@ void close_client(int epfd,struct client *c)
         perror("epoll_ctl close_client");
     }
     close(c->fd);
-    if (c->resp_file) {
-        fclose(c->resp_file);
-        c->resp_file = NULL;
+    if(c->resp_file != -1)
+    {
+        close(c->resp_file);
     }
     g_connections_open--;
     c->state=C_CLOSED;
+    remove_client(c);
     free(c);
 }
 
@@ -248,15 +305,26 @@ int write_to_client(struct client *c){
         }
 
         if (c->file_remaining == 0)
-            return 0; // fully sent, keep alive
+            return 1; // fully sent, keep alive
 
-        int bytes_sent=sendfile(c->fd, c->resp_file, c->file_offset,MAX_BODY);
-        if(bytes_sent < 0)
+        ssize_t bytes_sent=sendfile(c->fd, c->resp_file, &c->file_offset,MAX_BODY);
+        if(bytes_sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+        {
+            return 0;
+        }
+        else if(bytes_sent < 0)
         {
             return -1;
         }
-        c->file_offset=bytes_sent;
-        c->file_remaining-=bytes_sent;
+        else if(bytes_sent == 0 )
+        {
+            return -1; // unexpected EOF
+        }
+        else if(bytes_sent > 0)
+        {
+            c->file_remaining -= bytes_sent;
+            continue;
+        }
     }
 }
 
@@ -292,9 +360,15 @@ struct client* create_client(int client_fd,const char *client_ip)
     memset(c,0,sizeof(struct client));
     c->fd=client_fd;
     c->state=C_READING;
+    c->resp_file=-1;
+    c->last_activity = time(NULL);
 
     strncpy(c->ip, client_ip, sizeof(c->ip) - 1);
     c->ip[sizeof(c->ip) - 1] = '\0';
+
+    add_client(c);
+
+
 
     g_connections_open++;
 

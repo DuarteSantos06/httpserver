@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
 
 
 #define BUF_SIZE 8192
@@ -27,8 +28,15 @@ struct client{
     size_t out_len;
     size_t out_sent;
 
-    FILE *resp_file;
+    int resp_file;
     size_t file_remaining;
     
-    size_t file_offset;
+    off_t file_offset;
+
+    int keep_alive;
+
+    time_t last_activity;
+
+    struct client *prev;
+    struct client *next;
 };

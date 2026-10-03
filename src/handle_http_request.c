@@ -33,6 +33,7 @@ void handle_http_request(struct client *c)
         prepare_response(c, 400, "Bad Request\n");
         return;
     }
+    c->keep_alive=req.keep_alive;
     
     for(size_t i=0;i<sizeof(ROUTES) / sizeof(ROUTES[0]);i++){
         if(strcmp(req.method, ROUTES[i].method) == 0 && 
