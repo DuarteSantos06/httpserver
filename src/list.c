@@ -29,7 +29,7 @@ void remove_client(struct client *c) {
     if (c->next)
         c->next->prev = c->prev; 
     else
-        clients_tail = c->prev;   // não havia cliente seguinte: o anterior é o último
+        clients_tail = c->prev;   
 }
 
 void clean(int epfd)
