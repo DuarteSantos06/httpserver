@@ -6,3 +6,4 @@ data
 readme
 .DS_Store
 audit
+test/unit_tests/run_tests
