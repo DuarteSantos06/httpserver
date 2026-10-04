@@ -12,6 +12,7 @@ int parse_request(char* buffer,struct request *req){
         return -1;
 
     req->content_length=0;
+    req->keep_alive=0;
     req->body[0]='\0';
     size_t headers_len = end - buffer;
     char *content_length=strstr(buffer,"Content-Length:");
