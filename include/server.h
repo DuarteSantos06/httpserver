@@ -2,7 +2,7 @@
 #include <stdatomic.h>
 
 #define SERVER_PORT 8080
-#define WORKER_COUNT 8
+#define WORKER_COUNT 4
 
 #define MAX_HEADER_SIZE 4096
 

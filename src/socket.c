@@ -43,11 +43,13 @@ int server_socket(int port)
     if (fcntl(server_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
         perror("fcntl set"); close(server_fd); return -1;
     }
+    // Required: every worker binds its own socket to the same port
     int yes = 1;
-    #ifdef SO_REUSEPORT
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)) < 0)
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)) < 0) {
         perror("setsockopt SO_REUSEPORT");
-    #endif
+        close(server_fd);
+        return -1;
+    }
 
     #ifdef IPV6_V6ONLY
     int off = 0;

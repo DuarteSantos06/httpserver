@@ -2,7 +2,7 @@
 # Configuration
 # -------------------------
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -pthread -g -Iinclude
+CFLAGS = -Wall -Wextra -Werror -pthread -O2 -g -Iinclude
 TARGET = httpserver
 BUILD_DIR = build
 
