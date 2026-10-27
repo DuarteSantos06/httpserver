@@ -29,6 +29,7 @@ int read_from_client(struct client *c);
 int write_to_client(struct client *c);
 void close_client(int epfd,struct client *c);
 void set_to_write(struct client *c,int epfd);
+int try_process_request(struct client *c,int epfd);
 
 int server_socket(int port)
 {
@@ -75,24 +76,21 @@ int server_socket(int port)
     return server_fd;
 }
 
-int get_ip(struct sockaddr_storage *cli_addr, int client_fd,char* client_ip ,size_t ip_len){
+int get_ip(struct sockaddr_storage *cli_addr,char* client_ip ,size_t ip_len){
     if (cli_addr->ss_family == AF_INET) {
             struct sockaddr_in *addr4 = (struct sockaddr_in *)cli_addr;
             if (inet_ntop(AF_INET, &addr4->sin_addr, client_ip, ip_len) == NULL) {
                 perror("inet_ntop v4");
-                close(client_fd);
                 return -1;
             }
         } else if (cli_addr->ss_family == AF_INET6) {
             struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)cli_addr;
             if (inet_ntop(AF_INET6, &addr6->sin6_addr, client_ip, ip_len) == NULL) {
                 perror("inet_ntop v6");
-                close(client_fd);
                 return -1;
             }
         }
         else {
-            close(client_fd);
             return -1;
         }
         return 0;
@@ -120,16 +118,19 @@ void accept_clients(int epfd, int server_fd)
         fcntl(client_fd,F_SETFL,O_NONBLOCK);
         char client_ip[INET6_ADDRSTRLEN]; 
         size_t ip_len = sizeof(client_ip);
-        if(get_ip(&cli_addr,client_fd,client_ip,ip_len)==-1){
+        if(get_ip(&cli_addr,client_ip,ip_len)==-1){
             close(client_fd);
             continue;
         }
         struct client *c=create_client(client_fd,client_ip);
         int limited = 0;
+#ifndef NO_RATE_LIMIT
+        // Compile with NO_RATE_LIMIT=1 to disable it (e.g. remote benchmarks from a single IP)
         if (strcmp(client_ip, "127.0.0.1") != 0 && strcmp(client_ip, "::1") != 0)
         {
             limited = is_rate_limited(client_ip);
         }
+#endif
         struct epoll_event ev_client;         
         ev_client.data.ptr = c;
         if(limited)
@@ -186,6 +187,23 @@ void set_to_write(struct client *c,int epfd)
     }
 }
 
+// returns 1 if a response is ready to be sent, 0 if the request is not complete yet
+int try_process_request(struct client *c,int epfd)
+{
+    if (c->header_len == 0) {
+        handle_header_parsing(c,epfd);
+        if (c->state == C_WRITING)
+            return 1; // bad request, the 400 is already prepared
+        if (c->header_len == 0)
+            return 0;
+    }
+    if (c->in_len < c->header_len + c->body_expected)
+        return 0;
+    handle_http_request(c);
+    set_to_write(c,epfd);
+    return 1;
+}
+
 void handle_client_event(int epfd,struct epoll_event *event )
 {
     struct client *c=(struct client *)event->data.ptr;
@@ -213,13 +231,7 @@ void handle_client_event(int epfd,struct epoll_event *event )
             set_to_write(c,epfd);
             return;
         }
-        if (c->header_len == 0) {
-            handle_header_parsing(c,epfd);
-        }
-        if (c->in_len < c->header_len + c->body_expected)
-            return;
-        handle_http_request(c);
-        set_to_write(c,epfd);
+        try_process_request(c,epfd);
     // Checks if the client is ready to write and is in the writing state
     }else if((event->events & EPOLLOUT) &&c->state==C_WRITING) 
     {
@@ -238,7 +250,12 @@ void handle_client_event(int epfd,struct epoll_event *event )
             else if ( c-> keep_alive == 1)
             {
                 c->state = C_READING;
-                c->in_len = 0;
+                // Keep any pipelined bytes that came after the request we just answered
+                size_t consumed = c->header_len + c->body_expected;
+                size_t leftover = c->in_len > consumed ? c->in_len - consumed : 0;
+                memmove(c->buffer_in, c->buffer_in + consumed, leftover);
+                c->in_len = leftover;
+                c->buffer_in[c->in_len] = '\0';
                 c->header_len = 0;
                 c->body_expected = 0;
                 c->out_len = 0;
@@ -250,6 +267,9 @@ void handle_client_event(int epfd,struct epoll_event *event )
                     c->resp_file = -1;
                 }
                 c->keep_alive = 0; // Reset keep_alive for the next request
+                // The next request may already be in the buffer, epoll won't notify us about it
+                if (try_process_request(c,epfd))
+                    return;
                 struct epoll_event ev;
                 ev.events = EPOLLIN ;
                 ev.data.ptr = c ;

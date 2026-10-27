@@ -3,6 +3,10 @@
 # -------------------------
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -pthread -O2 -g -Iinclude
+# make NO_RATE_LIMIT=1 disables the per-IP rate limiter (for benchmarks)
+ifeq ($(NO_RATE_LIMIT),1)
+CFLAGS += -DNO_RATE_LIMIT
+endif
 TARGET = httpserver
 BUILD_DIR = build
 

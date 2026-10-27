@@ -8,3 +8,4 @@ readme
 audit
 test/unit_tests/run_tests
 results
+test/benchmarks
