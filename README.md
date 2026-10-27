@@ -57,6 +57,7 @@ HttpServer/
 ├── www/                        # Static files
 └── test/
     ├── loadtest.sh             # Multi-scenario load test (reports saved to test/benchmarks/)
+    ├── latency.sh              # Fixed-rate latency test with wrk2
     └── unit_tests/             # Unit tests
 ```
 
@@ -123,7 +124,40 @@ Each run writes a full report and a CSV to `test/benchmarks/`. `HOST`, `PORT`, `
 
 ### Results
 
-Measured on a 4 vCPU x86_64 VPS (Ubuntu 24.04, kernel 6.8) with 4 workers, 15 s per test, with `wrk` running on the same machine over loopback:
+Server: 4 vCPU x86_64 VPS (Ubuntu 24.04, kernel 6.8) with 4 workers. Client: a second 4 vCPU VPS in the same datacenter (RTT 0.4 ms, ~5 Gbit/s measured with `iperf3`), 15 s per test:
+
+```
+Test        Clients       Req/s       p50       p99   Transf/s     CPU     RSS
+keepalive        50   112832.66  377.00us    0.89ms   144.08MB     3.8     2MB
+keepalive       200   129764.79    1.41ms    3.21ms   165.71MB     3.9     4MB
+keepalive      1000   116772.08    8.03ms   15.89ms   149.11MB     4.0    14MB
+keepalive      4000   112471.17   32.45ms   61.30ms   143.62MB     4.0    53MB
+status           50   196363.10  217.00us  592.00us    29.03MB     3.1     2MB
+status          200   258541.60  664.00us    1.54ms    38.46MB     3.8     5MB
+status         1000   212162.30    2.95ms   10.72ms    31.77MB     3.5    17MB
+status         4000   159580.10   15.61ms   43.62ms    23.89MB     3.4    64MB
+newconn          50    23986.99    1.22ms    5.31ms    30.52MB     2.6     2MB
+newconn         200    27577.66    4.86ms   23.42ms    35.08MB     3.1     5MB
+newconn        1000    31993.68   22.53ms   81.30ms    40.70MB     3.5    20MB
+mixed            50    74844.98  537.00us    2.03ms   467.22MB     2.6     2MB
+mixed           200    91195.33    2.03ms    4.68ms   569.44MB     2.6     5MB
+mixed          1000    93886.02    8.83ms  141.29ms   585.72MB     3.5    17MB
+mixed          4000    80327.10   42.06ms  153.19ms   500.93MB     3.9    65MB
+bigfile          50     8308.98    5.26ms   15.84ms     0.86GB     0.7     2MB
+idle+200        200   124110.25    1.44ms    3.69ms   158.49MB     3.9    36MB
+```
+
+- **Zero socket errors and zero non-2xx responses** across all 17 runs.
+- **~259k req/s** peak on `/status`, which isolates the event loop and HTTP handling, and still **~160k req/s with 4,000 concurrent clients** (p99 44 ms).
+- **~130k req/s** peak serving a 1.2 KB HTML file with keep-alive, with all 4 cores busy, and still **over 110k req/s with 4,000 concurrent clients** (p99 61 ms).
+- **2,000 idle connections** held open alongside 200 active clients with none dropped, at ~124k req/s (vs ~130k without them) and 36 MB RSS.
+- `bigfile` is bound by the network, not the server: 0.86 GB/s (~7 Gbit/s) with the server using under one core.
+- **~30k new TCP connections per second** with 1,000 clients (`newconn`, where every request opens and closes its own connection), confirmed in two later runs (32k req/s each). These rows come from a run of that scenario alone: in the first full run, 1,000 clients dropped once to ~4k req/s with the server almost idle (0.4 cores) and p99 close to 1 s, the typical delay of a retransmitted SYN. It did not happen again, and the server showed no listen queue overflows, so it points to something transient between the two machines rather than the server.
+- `CPU` is the number of busy server cores (out of 4) and `RSS` the server's memory halfway through each test. The p99 values come from `wrk` and are optimistic; see the latency test below.
+
+#### Over loopback
+
+The same test with `wrk` on the server machine itself. Without a network card in the path `/` reaches ~170k req/s and `sendfile()` ~3 GB/s, but `wrk` takes CPU from the server (only ~2.2 of its 4 cores were busy), so these numbers are not a clean measure of either:
 
 ```
 Test        Clients       Req/s       p50       p99   Transf/s     CPU     RSS
@@ -146,9 +180,34 @@ bigfile          50    28658.60    1.51ms    4.54ms     2.97GB     2.4     2MB
 idle+200        200   154835.08    1.02ms    4.47ms   197.72MB     2.2    36MB
 ```
 
-- **Zero socket errors and zero non-2xx responses** across all 17 runs.
-- **~255k req/s** peak on `/status`, which isolates the event loop and HTTP handling, and still **~180k req/s with 4,000 concurrent clients** (p99 41 ms).
-- **~170k req/s** peak serving a 1.2 KB HTML file with keep-alive, and still **over 100k req/s with 4,000 concurrent clients** (p99 under 80 ms).
-- **~3 GB/s** when serving a 111 KB file with `sendfile()`.
-- **2,000 idle connections** held open alongside 200 active clients with none dropped, at ~155k req/s (vs ~169k without them) and 36 MB RSS.
-- `CPU` is the number of busy server cores (out of 4) and `RSS` the server's memory halfway through each test. `wrk` used the remaining CPU on the same machine, so the server alone would do better on dedicated hardware.
+
+### Latency test
+
+`wrk` is closed-loop: each connection waits for a response before sending the next request, so when the server stalls `wrk` also stops sending and the slow requests are never measured (*coordinated omission*). The p99 values above are therefore optimistic.
+
+`test/latency.sh` uses [`wrk2`](https://github.com/giltene/wrk2) instead, which sends requests at a constant rate whether the responses arrive or not. It first measures the maximum throughput, then runs at several fractions of it; the point where p99 jumps is the real capacity of the server with acceptable latency.
+
+```bash
+./test/latency.sh                                 # local server
+MAX=143989 PCTS="50 60 70 75" ./test/latency.sh   # reuse a measured max, custom rates
+URL=/status CONNS=1000 ./test/latency.sh          # other endpoint / number of connections
+```
+
+`wrk2` is not packaged by most distributions; build it with `git clone https://github.com/giltene/wrk2 && make -C wrk2` and copy `wrk2/wrk` to `/usr/local/bin/wrk2`.
+
+Measured from the second VPS in the same datacenter, `GET /` with 200 connections, 30 s per rate (max 131k req/s):
+
+```
+% of max     Target      Req/s       p50       p90       p99     p99.9       Max    CPU
+     25%      32752      32618    1.11ms    1.79ms    2.24ms   11.18ms   33.98ms    1.1
+     50%      65505      64756    1.39ms    2.33ms    3.17ms    6.49ms   48.77ms    2.2
+     75%      98258      97851    1.48ms    5.06ms   81.28ms  147.46ms  222.21ms    3.4
+     90%     117909     115732   65.98ms  793.09ms     1.37s     1.91s     2.48s    3.8
+    100%     131011     118751     1.33s     3.99s     4.86s     5.23s     5.65s    3.8
+```
+
+- **p99 around 3 ms up to ~65k req/s**, with zero errors. At ~98k req/s the median is still 1.5 ms, but the slowest 1% already wait ~80 ms.
+- From 90% of the max the server is saturated (3.8 of 4 cores busy), requests queue up and p99 rises to seconds.
+- The latency grows smoothly with the load, which is what a server limited by its own CPU looks like.
+
+Before having a second machine, the same test was run on the server itself with the server pinned to 2 cores and `wrk2` to the other 2 (`taskset`): p99 stayed under 5 ms up to ~85k req/s on just 2 cores. Over loopback each request is cheaper (no network card, no interrupts), which is why that number is higher per core. Without pinning, `wrk2` was starved of CPU and reported multi-second stalls that came from the load generator, not the server.
